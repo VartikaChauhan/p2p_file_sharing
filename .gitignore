@@ -1,1 +1,34 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.so
+
+# C++ build artifacts
+*.o
+*.out
+*.exe
+*.a
+*.gch
+
+# Virtual environment
+venv/
+.env/
+
+# Editor and system files
+*.swp
+*.swo
+.DS_Store
+*.log
+
+# Generated files
+*.class
+*.cache
+*.tmp
+
+# Project-specific
 keys/
+gen_keys.sh
+known_peers.json
+downloads/
+shared/
+
