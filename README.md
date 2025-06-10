@@ -39,7 +39,7 @@ p2p_file_sharing/
 ├── peer.cpp           # Main peer code (client-server logic, encryption, file transfer)
 ├── peer               # Compiled binary 
 ├── Makefile           # Build file
-├── run_peers.sh       # Script to launch multiple peers
+├── run_peers.sh       # Script to launch multiple peers (ignored in Git)
 ├── gen_keys.sh        # 🔐 Script to generate RSA key pairs (ignored in Git)
 ├── known_peers.json   # 🔗 List of known peers and ports (ignored in Git)
 ├── json.hpp           # Single-header JSON library (nlohmann)
@@ -83,18 +83,19 @@ Manually or via script, update known_peers.json:
 ```
 ---
 
-- ##🚫 Sensitive Files (Excluded from Git)
+- ## 🚫 Sensitive Files (Excluded from Git)
 These files are deliberately excluded via .gitignore:
 ```bash 
 # .gitignore
 gen_keys.sh
 keys/
 known_peers.json
+run_peers.sh
 ```
 Please regenerate keys and peer lists locally using provided scripts.
 ---
 
-- ##📬 Usage
+- ## 📬 Usage
 From terminal after starting a peer:
 ```bash 
 Enter filename to download (or 'exit' to quit): example.pdf
