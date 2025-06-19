@@ -1,7 +1,3 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*.so
 
 # C++ build artifacts
 *.o
@@ -29,7 +25,4 @@ venv/
 keys/
 gen_keys.sh
 known_peers.json
-downloads/
-shared/
-
 run_peers.sh
