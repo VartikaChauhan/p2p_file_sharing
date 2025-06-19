@@ -1,7 +1,15 @@
-all: peer
+CXX = g++
+CXXFLAGS = -Wall -std=c++17
+LDFLAGS = -lssl -lcrypto -pthread
 
-peer: peer.cpp
-	 g++ -std=c++17 peer.cpp -o peer -lssl -lcrypto -lpthread
+TARGET = peer
+SRC = peer.cpp peer_discovery.cpp
+
+all: $(TARGET)
+
+$(TARGET): $(SRC)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 clean:
-	rm -f peer
+	rm -f $(TARGET)
+
