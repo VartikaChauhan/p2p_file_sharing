@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <fstream>
 #include <thread>
@@ -13,17 +12,16 @@
 #include <netinet/in.h>
 #include <fcntl.h>
 #include <filesystem>
-#include <openssl/evp.h>
-#include <openssl/rand.h>
-#include <openssl/rsa.h>
-#include <openssl/pem.h>
+#include <sstream>
+#include <limits>
 #include "peer_discovery.hpp"
 #include "json.hpp"
+#include "crypto_utils.hpp"
+#include <openssl/rand.h>
+#include <atomic>
 
 #define CHUNK_SIZE 1024
 #define META_EXT ".meta"
-#define AES_KEYLEN 32
-#define AES_IVLEN 16
 #define KEYS_FOLDER "keys/"
 
 #define RESET       "\033[0m"
@@ -34,13 +32,15 @@
 #define CYAN        "\033[36m"
 #define BOLDWHITE   "\033[1m\033[37m"
 
-#define LOG_INFO(msg)    std::cout << BLUE << "[INFO] " << RESET << msg << std::endl
-#define LOG_SUCCESS(msg) std::cout << GREEN << "[SUCCESS] " << RESET << msg << std::endl
-#define LOG_ERROR(msg)   std::cout << RED << "[ERROR] " << RESET << msg << std::endl
-#define LOG_REQUEST(msg) std::cout << CYAN << "[REQUEST] " << RESET << msg << std::endl
-#define LOG_SENDING(msg) std::cout << YELLOW << "[SENDING] " << RESET << msg << std::endl
+#define LOG_INFO(msg)    std::cout << BLUE << "[INFO] " << RESET << msg << std::endl << std::flush
+#define LOG_SUCCESS(msg) std::cout << GREEN << "[SUCCESS] " << RESET << msg << std::endl<< std::flush
+#define LOG_ERROR(msg)   std::cout << RED << "[ERROR] " << RESET << msg << std::endl<< std::flush
+#define LOG_REQUEST(msg) std::cout << CYAN << "[REQUEST] " << RESET << msg << std::endl<< std::flush
+#define LOG_SENDING(msg) std::cout << YELLOW << "[SENDING] " << RESET << msg << std::endl<< std::flush
 
 std::map<std::string, std::pair<std::string, int>> connectedPeers;
+std::string globalPeerName;
+std::atomic<bool> isRunning(true);
 
 bool fileExists(const std::string& filename) {
     std::ifstream file(filename);
@@ -60,67 +60,30 @@ void updateResumeOffset(const std::string& filename, size_t offset) {
     meta << offset;
 }
 
-RSA* loadPublicKey(const std::string& filepath) {
-    FILE* fp = fopen(filepath.c_str(), "r");
-    if (!fp) return nullptr;
-    RSA* rsa = PEM_read_RSA_PUBKEY(fp, NULL, NULL, NULL);
-    fclose(fp);
-    return rsa;
-}
-
-RSA* loadPrivateKey(const std::string& filepath) {
-    FILE* fp = fopen(filepath.c_str(), "r");
-    if (!fp) return nullptr;
-    RSA* rsa = PEM_read_RSAPrivateKey(fp, NULL, NULL, NULL);
-    fclose(fp);
-    return rsa;
-}
-
 void sendEncryptedKeyAndIV(int sock, const unsigned char* key, const unsigned char* iv, const std::string& pubKeyPath) {
-    RSA* rsa = loadPublicKey(pubKeyPath);
-    if (!rsa) {
-        LOG_ERROR("Failed to load public RSA key.");
+    EVP_PKEY* pubkey = loadPublicKey(pubKeyPath);
+    if (!pubkey) {
+        LOG_ERROR("Failed to load public key.");
         return;
     }
-    unsigned char encryptedKey[256], encryptedIV[256];
-    int keyLen = RSA_public_encrypt(AES_KEYLEN, key, encryptedKey, rsa, RSA_PKCS1_OAEP_PADDING);
-    int ivLen = RSA_public_encrypt(AES_IVLEN, iv, encryptedIV, rsa, RSA_PKCS1_OAEP_PADDING);
 
-    send(sock, &keyLen, sizeof(int), 0);
+    unsigned char encryptedKey[512], encryptedIV[512];
+    size_t keyLen, ivLen;
+
+    if (!encryptWithPublicKey(pubkey, key, AES_KEYLEN, encryptedKey, keyLen) ||
+        !encryptWithPublicKey(pubkey, iv, AES_IVLEN, encryptedIV, ivLen)) {
+        LOG_ERROR("RSA encryption failed.");
+        EVP_PKEY_free(pubkey);
+        return;
+    }
+
+    send(sock, &keyLen, sizeof(size_t), 0);
     send(sock, encryptedKey, keyLen, 0);
-    send(sock, &ivLen, sizeof(int), 0);
+    send(sock, &ivLen, sizeof(size_t), 0);
     send(sock, encryptedIV, ivLen, 0);
-    RSA_free(rsa);
-}
 
-bool aes_encrypt(unsigned char *plaintext, int plaintext_len, unsigned char *key,
-                 unsigned char *iv, unsigned char *ciphertext, int &out_len) {
-    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    int len;
-
-    if (!ctx) return false;
-    if (1 != EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, key, iv)) return false;
-    if (1 != EVP_EncryptUpdate(ctx, ciphertext, &len, plaintext, plaintext_len)) return false;
-    out_len = len;
-    if (1 != EVP_EncryptFinal_ex(ctx, ciphertext + len, &len)) return false;
-    out_len += len;
-    EVP_CIPHER_CTX_free(ctx);
-    return true;
-}
-
-bool aes_decrypt(unsigned char *ciphertext, int ciphertext_len, unsigned char *key,
-                 unsigned char *iv, unsigned char *plaintext, int &out_len) {
-    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    int len;
-
-    if (!ctx) return false;
-    if (1 != EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, key, iv)) return false;
-    if (1 != EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len)) return false;
-    out_len = len;
-    if (1 != EVP_DecryptFinal_ex(ctx, plaintext + len, &len)) return false;
-    out_len += len;
-    EVP_CIPHER_CTX_free(ctx);
-    return true;
+    EVP_PKEY_free(pubkey);
+    LOG_SUCCESS("Encrypted AES key and IV sent successfully.");
 }
 
 void sendFileChunks(int clientSocket, const std::string& filename) {
@@ -130,15 +93,13 @@ void sendFileChunks(int clientSocket, const std::string& filename) {
         return;
     }
 
+    LOG_INFO("Started sending file: '" + filename + "'");
+
     unsigned char aes_key[AES_KEYLEN], aes_iv[AES_IVLEN];
-    RAND_bytes(aes_key, sizeof(aes_key));
-    RAND_bytes(aes_iv, sizeof(aes_iv));
+    RAND_bytes(aes_key, AES_KEYLEN);
+    RAND_bytes(aes_iv, AES_IVLEN);
 
-    sendEncryptedKeyAndIV(clientSocket, aes_key, aes_iv, KEYS_FOLDER + std::string("peer_public.pem"));
-
-    file.seekg(0, std::ios::end);
-    size_t fileSize = file.tellg();
-    file.seekg(0, std::ios::beg);
+    sendEncryptedKeyAndIV(clientSocket, aes_key, aes_iv, KEYS_FOLDER + globalPeerName + "_public.pem");
 
     size_t resumeOffset = getResumeOffset(filename);
     if (resumeOffset > 0) {
@@ -161,7 +122,7 @@ void sendFileChunks(int clientSocket, const std::string& filename) {
         send(clientSocket, cipherbuf, encryptedLen, 0);
         bytesSent += bytesRead;
         updateResumeOffset(filename, bytesSent);
-        std::cout << YELLOW << " [Chunk " << ++chunkIndex << "] " << bytesRead << " bytes sent..." << RESET << std::endl;
+        LOG_INFO("[Chunk " + std::to_string(++chunkIndex) + "] Sent " + std::to_string(bytesRead) + " bytes");
     }
 
     LOG_SUCCESS("File '" + filename + "' successfully sent");
@@ -173,9 +134,13 @@ void handleIncomingRequest(int serverSocket) {
     sockaddr_in clientAddr;
     socklen_t clientLen = sizeof(clientAddr);
 
-    while (true) {
+    LOG_INFO("Listener thread started.");
+
+    while (isRunning) {
         int clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, &clientLen);
-        if (clientSocket < 0) {
+
+        if (!isRunning || clientSocket < 0) {
+            if (!isRunning) break;
             LOG_ERROR("Failed to accept connection.");
             continue;
         }
@@ -209,6 +174,8 @@ void handleIncomingRequest(int serverSocket) {
         sendFileChunks(clientSocket, filename);
         close(clientSocket);
     }
+
+    LOG_INFO("Listener thread exited cleanly.");
 }
 
 void requestFile(const std::string& peerIP, int peerPort, const std::string& filename) {
@@ -225,30 +192,43 @@ void requestFile(const std::string& peerIP, int peerPort, const std::string& fil
 
     send(sock, filename.c_str(), filename.length(), 0);
 
-    int keyLen, ivLen;
-    recv(sock, &keyLen, sizeof(int), 0);
-    unsigned char encryptedKey[256];
+    size_t keyLen, ivLen;
+    recv(sock, &keyLen, sizeof(size_t), 0);
+    unsigned char encryptedKey[512];
     recv(sock, encryptedKey, keyLen, 0);
 
-    recv(sock, &ivLen, sizeof(int), 0);
-    unsigned char encryptedIV[256];
+    recv(sock, &ivLen, sizeof(size_t), 0);
+    unsigned char encryptedIV[512];
     recv(sock, encryptedIV, ivLen, 0);
 
-    RSA* rsa = loadPrivateKey(KEYS_FOLDER + std::string("peer_private.pem"));
+    EVP_PKEY* privkey = loadPrivateKey(KEYS_FOLDER + globalPeerName + "_private.pem");
+    if (!privkey) {
+        LOG_ERROR("Private key not found or failed to load.");
+        return;
+    }
+
     unsigned char aes_key[AES_KEYLEN], aes_iv[AES_IVLEN];
-    RSA_private_decrypt(keyLen, encryptedKey, aes_key, rsa, RSA_PKCS1_OAEP_PADDING);
-    RSA_private_decrypt(ivLen, encryptedIV, aes_iv, rsa, RSA_PKCS1_OAEP_PADDING);
-    RSA_free(rsa);
+    size_t outLen1, outLen2;
+
+    if (!decryptWithPrivateKey(privkey, encryptedKey, keyLen, aes_key, outLen1) ||
+        !decryptWithPrivateKey(privkey, encryptedIV, ivLen, aes_iv, outLen2)) {
+        LOG_ERROR("RSA decryption failed.");
+        EVP_PKEY_free(privkey);
+        return;
+    }
+    EVP_PKEY_free(privkey);
 
     std::ofstream outFile("downloads/" + filename, std::ios::binary | std::ios::app);
     unsigned char buffer[CHUNK_SIZE * 2], plainbuf[CHUNK_SIZE * 2];
     ssize_t bytesReceived;
 
+    LOG_SUCCESS("Received and decrypted AES key and IV successfully.");
+
     while ((bytesReceived = recv(sock, buffer, sizeof(buffer), 0)) > 0) {
         int decryptedLen;
         aes_decrypt(buffer, bytesReceived, aes_key, aes_iv, plainbuf, decryptedLen);
         outFile.write((char*)plainbuf, decryptedLen);
-        std::cout << GREEN << "[Chunk Received: " << decryptedLen << " bytes]" << RESET << std::endl;
+        LOG_SUCCESS("[Chunk Received: " + std::to_string(decryptedLen) + " bytes]");
     }
 
     LOG_SUCCESS("File '" + filename + "' received successfully.");
@@ -257,8 +237,8 @@ void requestFile(const std::string& peerIP, int peerPort, const std::string& fil
 }
 
 void showMenu() {
-    std::cout << BOLDWHITE << "\n==== P2P File Sharing Menu ====" << RESET << std::endl;
-    std::cout << "1. Request a file\n2. View connected peers\n3. Exit\n";
+    std::cout << BOLDWHITE << "\n==== P2P File Sharing Menu ====\n" << RESET;
+    std::cout << "1. Request a file\n2. View connected peers\n3. Back to menu\n4. Exit\n";
     std::cout << "Choose an option: ";
 }
 
@@ -268,8 +248,13 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    int port = std::stoi(argv[1]);
-    std::string peerName = argv[2];
+    int port;
+    std::string peerName;
+
+restart:
+    port = std::stoi(argv[1]);
+    peerName = argv[2];
+    globalPeerName = peerName;
 
     LOG_INFO(peerName + " started on port " + std::to_string(port));
 
@@ -294,16 +279,26 @@ int main(int argc, char* argv[]) {
     bind(serverSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
     listen(serverSocket, 5);
 
+    isRunning = true;
     std::thread listenerThread(handleIncomingRequest, serverSocket);
 
     while (true) {
         showMenu();
         int choice;
-        std::cin >> choice;
+        std::string input;
+        std::getline(std::cin, input);
+        std::stringstream ss(input);
+
+        if (!(ss >> choice)) {
+            LOG_ERROR("Invalid input. Please enter a number.");
+            continue;
+        }
+
         if (choice == 1) {
             std::string fileReq;
             std::cout << "Enter filename to request: ";
             std::cin >> fileReq;
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
             std::string foundIP;
             int foundPort;
             if (dfsFileSearch(fileReq, connectedPeers, foundIP, foundPort)) {
@@ -315,11 +310,30 @@ int main(int argc, char* argv[]) {
             for (const auto& peer : connectedPeers) {
                 std::cout << "       -> " << peer.first << " @ " << peer.second.first << ":" << peer.second.second << std::endl;
             }
-        } else if (choice == 3) break;
+        } else if (choice == 3) {
+            LOG_INFO("Returning to menu...");
+            continue;
+        } else if (choice == 4) {
+            LOG_INFO("Shutting down peer. Please wait...");
+            isRunning = false;
+            shutdown(serverSocket, SHUT_RDWR);
+            close(serverSocket);
+            break;
+        } else {
+            LOG_ERROR("Invalid choice. Please select 1, 2, 3, or 4.");
+        }
     }
 
-    close(serverSocket);
     listenerThread.join();
+    LOG_SUCCESS("Peer " + globalPeerName + " exited.");
+
+    std::string restartChoice;
+    std::cout << "Do you want to restart the peer session? (y/n): ";
+    std::getline(std::cin, restartChoice);
+    if (restartChoice == "y" || restartChoice == "Y") {
+        goto restart;
+    }
+
     return 0;
 }
-
+    

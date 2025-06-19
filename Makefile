@@ -1,15 +1,19 @@
 CXX = g++
-CXXFLAGS = -Wall -std=c++17
-LDFLAGS = -lssl -lcrypto -pthread
+CXXFLAGS = -Wall -Wextra -std=c++17 -O2
+LDFLAGS = -lssl -lcrypto -lpthread
 
+SRCS = peer.cpp crypto_utils.cpp peer_discovery.cpp
+OBJS = $(SRCS:.cpp=.o)
 TARGET = peer
-SRC = peer.cpp peer_discovery.cpp
 
 all: $(TARGET)
 
-$(TARGET): $(SRC)
+$(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
 clean:
-	rm -f $(TARGET)
+	rm -f *.o $(TARGET)
 
