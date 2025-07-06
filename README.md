@@ -1,4 +1,4 @@
-# 🔗 P2P File Sharing Network 
+#  P2P File Sharing Network 
 
 A fully functional **Peer-to-Peer (P2P) file sharing system** implemented in **C++** using **multithreading**, **socket programming**, and **hybrid encryption** (AES-256 + RSA). Each peer acts as both client and server, supporting secure file discovery, encrypted file transfers, and resilient chunk-based downloads — built for **scalability, modularity**, and **performance**.
 
@@ -10,20 +10,20 @@ This project is a scalable and secure P2P file sharing network developed in C++.
 
 ---
 
-## 📦 Project Features
+##  Project Features
 
-- 🔐 **Hybrid Encryption**: RSA for secure AES key exchange, AES-256-CBC for chunk encryption (OpenSSL EVP).
-- 🧵 **Multithreaded Peer**: Concurrent server-client using `std::thread`.
-- 🕸️ **Peer-to-Peer Architecture**: No central server; each peer communicates independently.
-- 🔎 **DFS-Based File Discovery**: Distributed search using depth-first traversal over known peers.
-- 📁 **Chunked File Transfer**: Files sent/received in secure chunks.
-- ♻️ **Resume Downloads**: Resume interrupted downloads using metadata logs.
-- 🧠 **Modular Design**: Clean folder separation (`shared/`, `downloads/`, `metadata/`, `keys/`).
-- ✅ **Logging & UI Enhancements**: Color-coded logs, terminal-based status, clear request handling.
+-  **Hybrid Encryption**: RSA for secure AES key exchange, AES-256-CBC for chunk encryption (OpenSSL EVP).
+-  **Multithreaded Peer**: Concurrent server-client using `std::thread`.
+-  **Peer-to-Peer Architecture**: No central server; each peer communicates independently.
+-  **DFS-Based File Discovery**: Distributed search using depth-first traversal over known peers.
+-  **Chunked File Transfer**: Files sent/received in secure chunks.
+-  **Resume Downloads**: Resume interrupted downloads using metadata logs.
+-  **Modular Design**: Clean folder separation (`shared/`, `downloads/`, `metadata/`, `keys/`).
+-  **Logging & UI Enhancements**: Color-coded logs, terminal-based status, clear request handling.
   
 ---
 
-## 🛠️ Technologies Used
+##  Technologies Used
 
 - **C++17**
 - **Socket Programming (POSIX)**
@@ -34,7 +34,7 @@ This project is a scalable and secure P2P file sharing network developed in C++.
 
 ---
 
-## 🗂️ Project Structure
+##  Project Structure
 
 ```bash
 p2p_file_sharing/
@@ -58,7 +58,7 @@ p2p_file_sharing/
 └── README.md          # You are here!
 ```
 ---
-## 🔧 Setup Instructions
+##  Setup Instructions
 
 1️⃣ Clone & Build
 ```bash 
@@ -102,7 +102,7 @@ chmod +x run_peers.sh
 ```
 ---
 
- ## 🚫 Sensitive Files (Excluded from Git)
+ ##  Sensitive Files (Excluded from Git)
 These files are deliberately excluded via .gitignore:
 ```bash 
 # .gitignore
